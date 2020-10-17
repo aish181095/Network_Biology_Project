@@ -1,0 +1,592 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Script and session info
+Script name: WGCNA-script.Rmd
+
+Purpose of script: co-expression network analysis
+
+Author: Martina Kutmon & Grace Marshall
+
+Date Created: 05-05-2020
+
+## Session info:
+R version 3.6.3 (2020-02-29)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 10 x64 (build 17763)
+Packages: biomaRt_2.42.0, rstudioapi_0.11
+
+# Set up environment
+```{r}
+#clear workspace and set string as factors to false
+rm(list=ls())
+options(stringsAsFactors = F)
+
+```
+
+# Install required packages
+```{r,echo=FALSE}
+#BiocManager::install("WGCNA")
+library(WGCNA)
+library(rstudioapi)
+library(dplyr)
+```
+
+```{r}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+```
+
+# read data and combine them to input file for WGCNA
+```{r}
+colon_stage_1<-read.table("stage1_rna_matrix.txt", sep ="\t", header=TRUE,row.names = 1)
+colon_stage_2<-read.table("stage2_rna_matrix.txt", sep ="\t", header=TRUE,row.names = 1)
+colon_stage_3<-read.table("stage3_rna_matrix.txt", sep ="\t", header=TRUE,row.names = 1)
+colon_stage_4<-read.table("stage4_rna_matrix.txt", sep ="\t", header=TRUE,row.names = 1)
+
+
+
+
+
+#merge the data
+commongenes_1_2 = intersect (rownames(colon_stage_1),rownames(colon_stage_2))
+new_colon_stage_1 = colon_stage_1[commongenes_1_2,]
+new_colon_stage_2 = colon_stage_2[commongenes_1_2,] 
+combined_stage1_2<-as.data.frame(cbind(new_colon_stage_1,new_colon_stage_2))
+
+common_genes_1_2_3=intersect (rownames(combined_stage1_2),rownames(colon_stage_3))
+new_colon_stage_1_2 = combined_stage1_2[common_genes_1_2_3,]
+new_colon_stage_3 = colon_stage_3[common_genes_1_2_3,] 
+combined_stage1_2_3<-as.data.frame(cbind(new_colon_stage_1_2,new_colon_stage_3))
+
+
+common_genes_all=intersect (rownames(combined_stage1_2_3),rownames(colon_stage_4))
+new_colon_stage_1_2_3 = combined_stage1_2_3[common_genes_all,]
+new_colon_stage_4 = colon_stage_4[common_genes_all,] 
+combined_stage_all<-as.data.frame(cbind(new_colon_stage_1_2_3,new_colon_stage_4))
+
+columnames_1<-rep(c("stage_1"), each = c(31))
+columnames_2<-rep(c("stage_2"), each = c(82))
+columnames_3<-rep(c("stage_3"), each = c(59))
+columnames_4<-rep(c("stage_4"), each = c(23))
+column_names_1_2<-c(columnames_1,columnames_2,columnames_3,columnames_4)
+colnames(combined_stage_all)<-column_names_1_2
+```
+
+```{r}
+require(biomaRt)
+ensembl<-useMart("ensembl",dataset ="hsapiens_gene_ensembl")
+annotate<-getBM(attributes=c('hgnc_symbol','entrezgene_id'),
+                filter='hgnc_symbol',
+                values=rownames(combined_stage_all),
+                mart=ensembl)
+probes2annot = match(rownames(combined_stage_all), annotate$hgnc_symbol)
+# The following is the number or probes without annotation:
+sum(is.na(probes2annot))
+# Should return 0.
+
+rownames(annotate) = make.names(annotate$hgnc_symbol, unique=TRUE)
+
+genes_match<-intersect(rownames(annotate),rownames(combined_stage_all))
+combined_stage_all_1<-combined_stage_all[genes_match,]
+gene_id<-data.frame(annotate[genes_match,])
+combined_stage_all_1$gene_id<-gene_id[,2]
+rownames(combined_stage_all_1)<-make.names(combined_stage_all_1$gene_id, unique=TRUE)
+combined_stage_all_1$gene_id<-NULL
+```
+
+# check if there are samples with missing data
+```{r}
+gsg = goodSamplesGenes(combined_stage_all_1, verbose = 3);
+gsg$allOK
+
+# remove rows with all low expression
+combined.filtered <- combined_stage_all_1[rowSums(combined_stage_all_1) > 0.5, , drop=TRUE]
+combined.filtered <- as.data.frame(t(as.matrix(combined.filtered)))
+```
+
+```{r}
+sampleTree = hclust(dist(combined.filtered), method = "ward.D2");
+
+# Plot the sample tree: Open a graphic output window of size 12 by 9 inches
+# The user should change the dimensions if the window is too large or too small.
+sizeGrWindow(12,9)
+#pdf(file = "Plots/sampleClustering.pdf", width = 12, height = 9);
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers", hang=-1,sub="", xlab="", cex.lab = 1.5, 
+     cex.axis = 1.5, cex.main = 2)
+
+# no real outliers visible
+```
+
+```{r}
+#traitData = read.csv("traits.csv");
+#dim(traitData)
+#names(traitData)
+
+columnames_1<-rep(c(1), each = c(31))
+columnames_2<-rep(c(2), each = c(82))
+columnames_3<-rep(c(3), each = c(59))
+columnames_4<-rep(c(4), each = c(23))
+column_names_1_2<-c(columnames_1,columnames_2,columnames_3,columnames_4)
+trait_data<-as.data.frame(rownames(combined.filtered))
+trait_data$stage<-as.numeric(column_names_1_2)
+trait_data$stage_1<-trait_data$stage
+colnames(trait_data)<-c("samples","stage","stage_1")
+
+# Form a data frame analogous to expression data that will hold the clinical traits.
+
+#samples = rownames(combined.filtered);
+#traitRows = match(samples, trait_data$samples);
+#datTraits = as.data.franetrait_data[traitRows, -1];
+rownames(trait_data) = trait_data$samples;
+trait_data$samples<-NULL
+
+collectGarbage();
+```
+
+#merge together the filtered table with the information from the Giannakis dataset
+```{r}
+# Re-cluster samples
+sampleTree2 = hclust(dist(combined.filtered), method = "ward.D2")
+# Convert traits to a color representation: white means low, red means high, grey means missing entry
+traitColors = numbers2colors(trait_data, signed = FALSE);
+sizeGrWindow(12,12)
+
+# Plot the sample dendrogram and the colors underneath.
+plotDendroAndColors(sampleTree2, traitColors,
+                    groupLabels = names(trait_data), 
+                    main = "Sample dendrogram and trait heatmap",
+                    addGuide = TRUE)
+##stage 2.14 and stage 4.4 outliers 
+
+```
+
+```{r}
+#remving outliers
+rows_removed<-c("stage_2.14","stage_4.4")
+ combined.filtered = combined.filtered[!row.names(combined.filtered)%in%rows_removed, ]
+ trait_data<-as.data.frame(t(trait_data))
+ trait_data$stage_2.14<-NULL
+ trait_data$stage_4.4<-NULL
+   
+  trait_data<-as.data.frame(t(trait_data))
+ 
+ # Re-cluster samples
+sampleTree2 = hclust(dist(combined.filtered), method = "ward.D2")
+# Convert traits to a color representation: white means low, red means high, grey means missing entry
+traitColors = numbers2colors(trait_data, signed = FALSE);
+sizeGrWindow(12,12)
+
+# Plot the sample dendrogram and the colors underneath.
+plotDendroAndColors(sampleTree2, traitColors,
+                    groupLabels = names(trait_data), 
+                    main = "Sample dendrogram and trait heatmap",
+                    addGuide = TRUE)
+
+```
+
+```{r}
+save(combined.filtered, trait_data,trait_data_new, file = "WGCNA-input.RData")
+```
+
+
+
+
+
+#########################################
+Network construction and module detection
+#########################################
+
+```{r}
+# Allow multi-threading within WGCNA. This helps speed up certain calculations.
+# At present this call is necessary for the code to work.
+# Any error here may be ignored but you may want to update WGCNA if you see one.
+# Caution: skip this line if you run RStudio or other third-party R environments. 
+# See note above.
+enableWGCNAThreads()
+# Load the data saved in the first part
+lnames = load(file = "WGCNA-input.RData");
+#The variable lnames contains the names of loaded variables.
+lnames
+```
+
+```{r}
+# Choose a set of soft-thresholding powers
+
+powers = c(c(1:10), seq(from = 12, to=20, by=2))
+# Call the network topology analysis function
+sft = pickSoftThreshold(combined.filtered, powerVector = powers, verbose = 5,networkType = "unsigned")
+# Plot the results:
+sizeGrWindow(9, 5)
+par(mfrow = c(1,2));
+cex1 = 0.9;
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,unsigned R^2",type="n",
+     main = paste("Scale independence"));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     labels=powers,cex=cex1,col="red");
+# this line corresponds to using an R^2 cut-off of h
+abline(h=0.90,col="red")
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
+```
+
+```{r}
+net = blockwiseModules(combined.filtered, power = 5,corType = "pearson",
+                       TOMType = "unsigned", minModuleSize = 30,
+                       reassignThreshold = 0, mergeCutHeight = 0.25,
+                       numericLabels = TRUE, pamRespectsDendro = FALSE,
+                       saveTOMs = TRUE,
+                       saveTOMFileBase = "expTOM", 
+                       verbose = 3)
+```
+
+
+```{r}
+# open a graphics window
+sizeGrWindow(15, 9)
+# Convert labels to colors for plotting
+mergedColors = labels2colors(net$colors)
+# Plot the dendrogram and the module colors underneath
+plotDendroAndColors(net$dendrograms[[1]], mergedColors[net$blockGenes[[1]]],
+                    "Module colors",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+```
+
+```{r}
+# open a graphics window
+sizeGrWindow(15, 9)
+moduleLabelsAutomatic = net$colors
+# Convert labels to colors for plotting
+moduleColorsAutomatic = labels2colors(moduleLabelsAutomatic)
+
+# A data frame with module eigengenes can be obtained as follows
+MEsAutomatic = net$MEs
+
+# this is the body weight
+stage = as.data.frame(trait_data$stage)
+names(stage) = "stage"
+# Next use this trait to define a gene significance variable
+GS.stage = as.numeric(cor(combined.filtered, stage, use = "p"))
+# This translates the numeric values into colors
+GS.stageColor = numbers2colors(GS.stage, signed = T)
+blocknumber = 1
+datColors = data.frame(moduleColorsAutomatic, GS.stageColor)[net$blockGenes[[blocknumber]], 
+    ]
+
+# Plot the dendrogram and the module colors underneath
+plotDendroAndColors(net$dendrograms[[blocknumber]], colors = datColors, groupLabels = c("Module colors", 
+    "GS.stage"), dendroLabels = FALSE, hang = 0.03, addGuide = TRUE, guideHang = 0.05)
+```
+
+```{r}
+moduleLabels = net$colors
+moduleColors = labels2colors(net$colors)
+table(moduleColors)
+MEs = net$MEs;
+geneTree = net$dendrograms[[1]];
+save(MEs, moduleLabels, moduleColors, geneTree, 
+     file = "network-reconstruction.RData")
+```
+
+
+
+##########################################
+Relate modules to external clinical traits
+##########################################
+```{r}
+# calculate the module membership values (aka. module eigengene based
+# connectivity kME):
+datKME = signedKME(combined.filtered, MEs,outputColumnName = "kME")
+# open a graphics window
+sizeGrWindow(100,100)
+colorOfColumn = substring(names(datKME), 4)
+par(mfrow = c(2,2))
+selectModules = c("green","darkred","red","brown"
+                  )
+par(mfrow = c(2, length(selectModules)/2))
+for (module in selectModules) {
+    column = match(module, colorOfColumn)
+    restModule = moduleColors == module
+    verboseScatterplot(datKME[restModule, column], GS.stage[restModule], xlab = paste("Module_membership ", 
+        module, "module"), ylab = "GS.stage", main = paste("unsignedkME.", module,".vs GS" 
+        ),col=module)
+}
+```
+
+```{r}
+# calculate the module membership values (aka. module eigengene based
+# connectivity kME):
+datKME = signedKME(combined.filtered, MEs,outputColumnName = "kME")
+# open a graphics window
+sizeGrWindow(100,100)
+colorOfColumn = substring(names(datKME), 4)
+par(mfrow = c(2,2))
+selectModules = c("salmon","blue","darkorange","brown"
+                  )
+par(mfrow = c(2, length(selectModules)/2))
+for (module in selectModules) {
+    column = match(module, colorOfColumn)
+    restModule = moduleColors == module
+    verboseScatterplot(datKME[restModule, column], GS.stage[restModule], xlab = paste("Module_membership ", 
+        module, "module"), ylab = "GS.stage", main = paste("unsignedkME.", module,".vs GS" 
+        ),col=module)
+}
+```
+
+```{r}
+# Load the expression and trait data saved in the first part
+lnames = load(file = "WGCNA-input.RData");
+#The variable lnames contains the names of loaded variables.
+lnames
+# Load network data saved in the second part.
+lnames = load(file = "network-reconstruction.RData");
+lnames
+```
+
+```{r}
+# Define numbers of genes and samples
+nGenes = ncol(combined.filtered);
+nSamples = nrow(combined.filtered);
+# Recalculate MEs with color labels
+MEs0 = moduleEigengenes(combined.filtered, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, trait_data, use = "p");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
+
+#NS1=networkScreening(y=trait_data$stage, datME=MEs,
+datExpr=combined.filtered, oddPower=3, blockSize=2000,
+minimumSampleSize=4,addMEy=TRUE, removeDiag=FALSE,
+weightESy=1, getQValues=TRUE)
+```
+
+```{r}
+GeneResultsNetworkScreening3=data.frame(GeneName=row.names(
+NS1), NS1)
+probes = names(combined.filtered)
+geneInfo3 = data.frame(name = probes, moduleColor =
+moduleColors, GeneResultsNetworkScreening3)
+write.table(geneInfo3,
+file="GeneResultsNetworkScreening_Veg_Yield.csv",
+row.names=F,sep=",")
+datMEy = data.frame(trait_data$stage, MEs)
+eigengeneSignificance1 = cor(datMEy, trait_data$stage)
+eigengeneSignificance1[1,1] =
+(1+max(eigengeneSignificance1[-1, 1]))/2
+eigengeneSignificance1.pvalue =
+corPvalueStudent(eigengeneSignificance1, nSamples =
+length(trait_data$stage))
+namesME=names(datMEy)
+out1=data.frame(t(data.frame(eigengeneSignificance1,
+eigengeneSignificance1.pvalue, namesME, t(datMEy))))
+dimnames(out1)[[1]][1]="EigengeneSignificance"
+dimnames(out1)[[1]][2]="EigengeneSignificancePvalue"
+dimnames(out1)[[1]][3]="ModuleEigengeneName"
+dimnames(out1)[[1]][-c(1:3)]=dimnames(combined.filtered)[[1]]
+
+```
+
+```{r}
+
+sizeGrWindow(20,20)
+# Will display correlations and their p-values
+textMatrix =  paste(signif(moduleTraitCor, 2), "\n(",
+                           signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(8, 8.5, 3, 3));
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(trait_data_new),
+               yLabels = names(MEs),
+               ySymbols = names(MEs),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.3,
+               cex.lab.y = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+```
+
+```{r}
+# Define variable time containing the stage column of trait data
+stage = as.data.frame(trait_data$stage);
+names(stage) = "stage"
+# names (colors) of the modules
+modNames = substring(names(MEs), 3)
+
+geneModuleMembership = as.data.frame(cor(combined.filtered, MEs, use = "p"));
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nSamples));
+
+names(geneModuleMembership) = paste("MM", modNames, sep="");
+names(MMPvalue) = paste("p.MM", modNames, sep="");
+
+geneTraitSignificance = as.data.frame(cor(combined.filtered, stage, use = "p"));
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), nSamples));
+
+names(geneTraitSignificance) = paste("GS.", names(stage), sep="");
+names(GSPvalue) = paste("p.GS.", names(stage), sep="");
+```
+
+```{r}
+module = "green"
+column = match(module, modNames);
+moduleGenes = moduleColors==module;
+
+sizeGrWindow(7, 7);
+par(mfrow = c(1,1));
+verboseScatterplot(abs(geneModuleMembership[moduleGenes, column]),
+                   abs(geneTraitSignificance[moduleGenes, 1]),
+                   xlab = paste("Module Membership in", module, "module"),
+                   ylab = "Gene significance for time",
+                   main = paste("Module membership vs. gene significance\n"),
+                   cex.main = 1.2, cex.lab = 1.2, cex.axis = 1.2, col = module)
+```
+
+
+
+```{r}
+
+
+#remving the 'x' from the column names
+for ( col in 1:ncol(combined.filtered)){
+  colnames(combined.filtered)[col] <-  sub("X", "", colnames(combined.filtered)[col])
+}
+
+```
+
+```{r}
+
+
+GOenr = GOenrichmentAnalysis(moduleColors, 
+                     colnames(combined.filtered), 
+                     organism = "human", 
+                     ontologies = c("BP", "CC", "MF"), 
+                     evidence = "all",
+                     includeOffspring = TRUE, 
+                     backgroundType = "givenInGO",
+                     removeDuplicates = TRUE,
+                     leaveOutLabel = NULL,
+                     nBestP = 10, pCut = NULL, 
+                     nBiggest = 0, 
+                     getTermDetails = TRUE,
+                     verbose = 2, indent = 0);
+
+```
+
+```{r}
+# Create the starting data frame
+geneInfo0 = data.frame(Gene.Symbol = colnames(combined.filtered),
+                      moduleColor = moduleColors,
+                      geneTraitSignificance,
+                      GSPvalue)
+
+##subset green module
+green_module_genes<-subset(geneInfo0,moduleColor=="green")
+#enrichment for green module
+annotate_green<-getBM(attributes=c('hgnc_symbol','entrezgene_id'),
+                filter='entrezgene_id',
+                values=green_module_genes$Gene.Symbol,
+                mart=ensembl)
+write.table(annotate_green$hgnc_symbol,"green genes.txt",quote=F,row.names = F)
+rownames(annotate_green)<-make.names(annotate_green$hgnc_symbol, unique=TRUE)
+rows_removed_green<-c("X","X.1")
+ annotate_green = annotate_green[!row.names(annotate_green)%in%rows_removed_green, ]
+ green_match<-intersect(annotate_green$entrezgene_id,green_module_genes$Gene.Symbol)
+ combined_green_gene<-annotate_green[green_match,]
+ combined_green<-green_module_genes[green_match,]
+GOenr_green = GOenrichmentAnalysis(moduleColors, 
+                     colnames(combined.filtered), 
+                     organism = "human", 
+                     ontologies = c("BP", "CC", "MF"), 
+                     evidence = "all",
+                     includeOffspring = TRUE, 
+                     backgroundType = "givenInGO",
+                     removeDuplicates = TRUE,
+                     leaveOutLabel = NULL,
+                     nBestP = 10, pCut = NULL, 
+                     nBiggest = 0, 
+                     getTermDetails = TRUE,
+                     verbose = 2, indent = 0);
+expression_data<-data.frame(t(combined.filtered))
+
+```
+
+```{r}
+write.csv(geneInfo, file = "geneInfo.csv", row.names = FALSE)
+```
+
+```{r}
+library(PANEV)
+list <- panev.biomartSpecies(string = NULL)
+list <- panev.biomartSpecies(string = "Human")
+biomart.species.bos <- as.character(list[1,1])
+ensemble_id<-getBM(attributes=c('ensembl_gene_id','entrezgene_id'),
+                filter='entrezgene_id',
+                values=green_module_genes$Gene.Symbol,
+                mart=ensembl)
+ensemble_gene_list<-data.frame(ensemble_id$ensembl_gene_id)
+colnames(ensemble_gene_list)<-c("ensemble_id")
+write.table(ensemble_gene_list,"ensemble gene list.txt",row.names = F,quote = F)
+ensemble_gene_list<-read.table("ensemble gene list.txt",header = F,stringsAsFactors = F)
+genelist.converted <- panev.dataPreparation(in.file = "ensemble gene list.txt", 
+                                          gene_id = "ensembl", 
+                                          biomart.species = biomart.species.bos)
+write.table(genelist.converted,"data.txt",row.names = F,quote = F)
+
+list <- panev.pathList(string = NULL)#path:map04146 path:map00730 path:map00740 path:map00750 path:map01524 path:map02010 path:map04514
+FL.gene <- c("path:map04146", "path:map00062", "path:map00740", "path:map00750","path:map01524","path:map02010","path:map04514")
+write.table(list,"list.txt")
+
+list <- panev.speciesCode(string = "human")
+KEGG.species.bos <- as.character(list[1,2])
+panev.network(in.file = "data.txt", 
+              out.file = "example", 
+              species = KEGG.species.bos, 
+              FL = FL.gene, 
+              levels = 2)
+genes.1L <- read.table("C:\\Users\\HP\\Desktop\\Network Biology\\project\\Colon\\MicroRNA-Gene-Network-Colon\\Data\\PANEV_RESULTS_example\\1Lgenes.txt", header = TRUE)
+```
+
+###################################
+Network visualization 
+###################################
+
+```{r}
+# Recalculate topological overlap if needed
+TOM = TOMsimilarityFromExpr(combined.filtered, power = 5);
+save(TOM,file="TOM.RData")
+
+```
+
+```{r}
+# Select modules
+modules = c("green");
+# Select module probes
+probes = names(combined.filtered)
+inModule = is.finite(match(moduleColors, modules));
+modProbes = probes[inModule];
+modGenes = annotate_green$hgnc_symbol[match(modProbes, annotate_green$entrezgene_id)];
+# Select the corresponding Topological Overlap
+modTOM = TOM[inModule, inModule];
+dimnames(modTOM) = list(modProbes, modProbes)
+# Export the network into edge and node list files Cytoscape can read
+cyt = exportNetworkToCytoscape(modTOM,
+  edgeFile = paste("CytoscapeInput-edges-", paste(modules, collapse="-"), ".txt", sep=""),
+  nodeFile = paste("CytoscapeInput-nodes-", paste(modules, collapse="-"), ".txt", sep=""),
+  weighted = TRUE,
+  threshold = 0.05,
+  nodeNames = modProbes,
+  altNodeNames = modGenes,
+  nodeAttr = moduleColors[inModule]);
+```
+
