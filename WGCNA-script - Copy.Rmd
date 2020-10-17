@@ -8,9 +8,9 @@ Script name: WGCNA-script.Rmd
 
 Purpose of script: co-expression network analysis
 
-Author: Martina Kutmon & Grace Marshall
+Author: Aishwarya Iyer
 
-Date Created: 05-05-2020
+Date Created: 17-10-2020
 
 ## Session info:
 R version 3.6.3 (2020-02-29)
@@ -49,23 +49,26 @@ colon_stage_4<-read.table("stage4_rna_matrix.txt", sep ="\t", header=TRUE,row.na
 
 
 
-#merge the data
+#merge the for the four colon cancer stages
+#merging stage 1 and 2 data
 commongenes_1_2 = intersect (rownames(colon_stage_1),rownames(colon_stage_2))
 new_colon_stage_1 = colon_stage_1[commongenes_1_2,]
 new_colon_stage_2 = colon_stage_2[commongenes_1_2,] 
 combined_stage1_2<-as.data.frame(cbind(new_colon_stage_1,new_colon_stage_2))
 
+#merge stage 1,2, and 3
 common_genes_1_2_3=intersect (rownames(combined_stage1_2),rownames(colon_stage_3))
 new_colon_stage_1_2 = combined_stage1_2[common_genes_1_2_3,]
 new_colon_stage_3 = colon_stage_3[common_genes_1_2_3,] 
 combined_stage1_2_3<-as.data.frame(cbind(new_colon_stage_1_2,new_colon_stage_3))
 
-
+#merge stage 1,2,3 and 4
 common_genes_all=intersect (rownames(combined_stage1_2_3),rownames(colon_stage_4))
 new_colon_stage_1_2_3 = combined_stage1_2_3[common_genes_all,]
 new_colon_stage_4 = colon_stage_4[common_genes_all,] 
 combined_stage_all<-as.data.frame(cbind(new_colon_stage_1_2_3,new_colon_stage_4))
 
+#change column names in the merged dataframe
 columnames_1<-rep(c("stage_1"), each = c(31))
 columnames_2<-rep(c("stage_2"), each = c(82))
 columnames_3<-rep(c("stage_3"), each = c(59))
@@ -75,24 +78,28 @@ colnames(combined_stage_all)<-column_names_1_2
 ```
 
 ```{r}
+##annotate the genes in the dataframe with ensemble gene ids
+#BiocManager::install("biomaRt")#install the package
 require(biomaRt)
 ensembl<-useMart("ensembl",dataset ="hsapiens_gene_ensembl")
 annotate<-getBM(attributes=c('hgnc_symbol','entrezgene_id'),
                 filter='hgnc_symbol',
                 values=rownames(combined_stage_all),
                 mart=ensembl)
+                
+#matching the genes with dataframe to check for number of genes not annotated                 
 probes2annot = match(rownames(combined_stage_all), annotate$hgnc_symbol)
 # The following is the number or probes without annotation:
 sum(is.na(probes2annot))
-# Should return 0.
+#aroubnd 3000 genes are not annotated .
 
-rownames(annotate) = make.names(annotate$hgnc_symbol, unique=TRUE)
-
+#Add ensemble gene id to the merged dataframe
+rownames(annotate) = make.names(annotate$hgnc_symbol, unique=TRUE) #add the rownames to annotate dataframe
 genes_match<-intersect(rownames(annotate),rownames(combined_stage_all))
 combined_stage_all_1<-combined_stage_all[genes_match,]
 gene_id<-data.frame(annotate[genes_match,])
-combined_stage_all_1$gene_id<-gene_id[,2]
-rownames(combined_stage_all_1)<-make.names(combined_stage_all_1$gene_id, unique=TRUE)
+combined_stage_all_1$gene_id<-gene_id[,2] #add gene id to teh merged dataframe
+rownames(combined_stage_all_1)<-make.names(combined_stage_all_1$gene_id, unique=TRUE)#make them as rownames
 combined_stage_all_1$gene_id<-NULL
 ```
 
@@ -118,14 +125,11 @@ par(mar = c(0,4,2,0))
 plot(sampleTree, main = "Sample clustering to detect outliers", hang=-1,sub="", xlab="", cex.lab = 1.5, 
      cex.axis = 1.5, cex.main = 2)
 
-# no real outliers visible
+
 ```
 
 ```{r}
-#traitData = read.csv("traits.csv");
-#dim(traitData)
-#names(traitData)
-
+#create a trait dataframe using the colonm cancer stage as values from 1,2,3 and 4.
 columnames_1<-rep(c(1), each = c(31))
 columnames_2<-rep(c(2), each = c(82))
 columnames_3<-rep(c(3), each = c(59))
@@ -133,14 +137,10 @@ columnames_4<-rep(c(4), each = c(23))
 column_names_1_2<-c(columnames_1,columnames_2,columnames_3,columnames_4)
 trait_data<-as.data.frame(rownames(combined.filtered))
 trait_data$stage<-as.numeric(column_names_1_2)
-trait_data$stage_1<-trait_data$stage
-colnames(trait_data)<-c("samples","stage","stage_1")
+trait_data$stage_1<-trait_data$stage #add an extra stage column will be further used to visulaize module-trait relationship
+colnames(trait_data)<-c("samples","stage","stage_1")#add columnnames to trait data
 
-# Form a data frame analogous to expression data that will hold the clinical traits.
-
-#samples = rownames(combined.filtered);
-#traitRows = match(samples, trait_data$samples);
-#datTraits = as.data.franetrait_data[traitRows, -1];
+#add the rownames to trait data 
 rownames(trait_data) = trait_data$samples;
 trait_data$samples<-NULL
 
@@ -189,7 +189,7 @@ plotDendroAndColors(sampleTree2, traitColors,
 ```
 
 ```{r}
-save(combined.filtered, trait_data,trait_data_new, file = "WGCNA-input.RData")
+save(combined.filtered, trait_data, file = "WGCNA-input.RData")
 ```
 
 
@@ -218,7 +218,7 @@ lnames
 
 powers = c(c(1:10), seq(from = 12, to=20, by=2))
 # Call the network topology analysis function
-sft = pickSoftThreshold(combined.filtered, powerVector = powers, verbose = 5,networkType = "unsigned")
+sft = pickSoftThreshold(combined.filtered, powerVector = powers, verbose = 5,networkType = "unsigned")#using unsigned option
 # Plot the results:
 sizeGrWindow(9, 5)
 par(mfrow = c(1,2));
@@ -236,9 +236,11 @@ plot(sft$fitIndices[,1], sft$fitIndices[,5],
      xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
      main = paste("Mean connectivity"))
 text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
+#choosing power 5 to get a sclae free network
 ```
 
 ```{r}
+#get the modules from the gene expression dataframe
 net = blockwiseModules(combined.filtered, power = 5,corType = "pearson",
                        TOMType = "unsigned", minModuleSize = 30,
                        reassignThreshold = 0, mergeCutHeight = 0.25,
@@ -303,9 +305,22 @@ save(MEs, moduleLabels, moduleColors, geneTree,
 Relate modules to external clinical traits
 ##########################################
 ```{r}
+# Define numbers of genes and samples
+nGenes = ncol(combined.filtered);
+nSamples = nrow(combined.filtered);
+# Recalculate MEs with color labels
+MEs0 = moduleEigengenes(combined.filtered, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, trait_data, use = "p");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
+
+
+```
+
+```{r}
 # calculate the module membership values (aka. module eigengene based
 # connectivity kME):
-datKME = signedKME(combined.filtered, MEs,outputColumnName = "kME")
+datKME = signedKME(combined.filtered, MEs,outputColumnName = "kME")#to calculate the correlation of the modules with the trait (colon cancer stage)
 # open a graphics window
 sizeGrWindow(100,100)
 colorOfColumn = substring(names(datKME), 4)
@@ -352,21 +367,7 @@ lnames = load(file = "network-reconstruction.RData");
 lnames
 ```
 
-```{r}
-# Define numbers of genes and samples
-nGenes = ncol(combined.filtered);
-nSamples = nrow(combined.filtered);
-# Recalculate MEs with color labels
-MEs0 = moduleEigengenes(combined.filtered, moduleColors)$eigengenes
-MEs = orderMEs(MEs0)
-moduleTraitCor = cor(MEs, trait_data, use = "p");
-moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
 
-#NS1=networkScreening(y=trait_data$stage, datME=MEs,
-datExpr=combined.filtered, oddPower=3, blockSize=2000,
-minimumSampleSize=4,addMEy=TRUE, removeDiag=FALSE,
-weightESy=1, getQValues=TRUE)
-```
 
 ```{r}
 GeneResultsNetworkScreening3=data.frame(GeneName=row.names(
@@ -374,23 +375,11 @@ NS1), NS1)
 probes = names(combined.filtered)
 geneInfo3 = data.frame(name = probes, moduleColor =
 moduleColors, GeneResultsNetworkScreening3)
+
 write.table(geneInfo3,
 file="GeneResultsNetworkScreening_Veg_Yield.csv",
 row.names=F,sep=",")
-datMEy = data.frame(trait_data$stage, MEs)
-eigengeneSignificance1 = cor(datMEy, trait_data$stage)
-eigengeneSignificance1[1,1] =
-(1+max(eigengeneSignificance1[-1, 1]))/2
-eigengeneSignificance1.pvalue =
-corPvalueStudent(eigengeneSignificance1, nSamples =
-length(trait_data$stage))
-namesME=names(datMEy)
-out1=data.frame(t(data.frame(eigengeneSignificance1,
-eigengeneSignificance1.pvalue, namesME, t(datMEy))))
-dimnames(out1)[[1]][1]="EigengeneSignificance"
-dimnames(out1)[[1]][2]="EigengeneSignificancePvalue"
-dimnames(out1)[[1]][3]="ModuleEigengeneName"
-dimnames(out1)[[1]][-c(1:3)]=dimnames(combined.filtered)[[1]]
+
 
 ```
 
@@ -464,24 +453,6 @@ for ( col in 1:ncol(combined.filtered)){
 
 ```
 
-```{r}
-
-
-GOenr = GOenrichmentAnalysis(moduleColors, 
-                     colnames(combined.filtered), 
-                     organism = "human", 
-                     ontologies = c("BP", "CC", "MF"), 
-                     evidence = "all",
-                     includeOffspring = TRUE, 
-                     backgroundType = "givenInGO",
-                     removeDuplicates = TRUE,
-                     leaveOutLabel = NULL,
-                     nBestP = 10, pCut = NULL, 
-                     nBiggest = 0, 
-                     getTermDetails = TRUE,
-                     verbose = 2, indent = 0);
-
-```
 
 ```{r}
 # Create the starting data frame
@@ -525,6 +496,12 @@ expression_data<-data.frame(t(combined.filtered))
 write.csv(geneInfo, file = "geneInfo.csv", row.names = FALSE)
 ```
 
+
+
+###################################
+Network visualization 
+###################################
+
 ```{r}
 library(PANEV)
 list <- panev.biomartSpecies(string = NULL)
@@ -555,38 +532,5 @@ panev.network(in.file = "data.txt",
               FL = FL.gene, 
               levels = 2)
 genes.1L <- read.table("C:\\Users\\HP\\Desktop\\Network Biology\\project\\Colon\\MicroRNA-Gene-Network-Colon\\Data\\PANEV_RESULTS_example\\1Lgenes.txt", header = TRUE)
-```
 
-###################################
-Network visualization 
-###################################
-
-```{r}
-# Recalculate topological overlap if needed
-TOM = TOMsimilarityFromExpr(combined.filtered, power = 5);
-save(TOM,file="TOM.RData")
-
-```
-
-```{r}
-# Select modules
-modules = c("green");
-# Select module probes
-probes = names(combined.filtered)
-inModule = is.finite(match(moduleColors, modules));
-modProbes = probes[inModule];
-modGenes = annotate_green$hgnc_symbol[match(modProbes, annotate_green$entrezgene_id)];
-# Select the corresponding Topological Overlap
-modTOM = TOM[inModule, inModule];
-dimnames(modTOM) = list(modProbes, modProbes)
-# Export the network into edge and node list files Cytoscape can read
-cyt = exportNetworkToCytoscape(modTOM,
-  edgeFile = paste("CytoscapeInput-edges-", paste(modules, collapse="-"), ".txt", sep=""),
-  nodeFile = paste("CytoscapeInput-nodes-", paste(modules, collapse="-"), ".txt", sep=""),
-  weighted = TRUE,
-  threshold = 0.05,
-  nodeNames = modProbes,
-  altNodeNames = modGenes,
-  nodeAttr = moduleColors[inModule]);
-```
 
