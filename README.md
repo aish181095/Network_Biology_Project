@@ -1,5 +1,5 @@
 
-# AIM: Using gene co-expression network to functionally analyse mRNA and miRNA expression trends in colon cancer progression 
+# AIM: Using gene co-expression network to functionally analyse mRNA expression trends in colon cancer progression 
 
  In this project the expression trends across the four stages of colon cancer are studied using correlation network (WGCNA) , Over representation and functional annotation clustering and finally gene-pathway network visualization using PANEV.
  
