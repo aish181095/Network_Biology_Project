@@ -5,7 +5,7 @@
  
  The WGCNA-colon script is RMarkdown script (R version 3.10) containing the code and steps that were taken to answer the aim of the study. The data used for this analysis is made avalaible in this  repository and was taken from Wen J, Hall B, Shi X, BMC Medical Genomics. 2019.
  Functional annotation and clustering was performed using the green module gene list.txt provided in the repository using medium stringency in DAVID 6.8.
- PANEV(Pathway Network Visualoization) was performed using code available in Palombo V, et al., PANEV: an R package for a pathway-based network visualization. BMC Bioinformatics. 2020.
+ PANEV(Pathway Network Visualization) was performed using code available in Palombo V, et al., PANEV: an R package for a pathway-based network visualization. BMC Bioinformatics. 2020.
  
  This project is part of the Network Biology Course for Masters in Systems Biology at Maastricht University, Netherlands.
  
